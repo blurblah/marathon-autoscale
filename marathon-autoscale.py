@@ -5,21 +5,12 @@ import requests
 import json
 import math
 import time
-
-marathon_host = input("Enter the DNS hostname or IP of your Marathon Instance : ")
-marathon_port = input("Enter the port of your Marathon Instance : ")
-max_mem_percent = int(input("Enter the Max percent of Mem Usage averaged across all Application Instances to trigger Autoscale (ie. 80) : "))
-max_cpu_time = int(input("Enter the Max percent of CPU Usage averaged across all Application Instances to trigger Autoscale (ie. 80) : "))
-trigger_mode = input("Enter which metric(s) to trigger Autoscale ('and', 'or') : ")
-autoscale_multiplier = float(input("Enter Autoscale multiplier for triggered Autoscale (ie 1.5) : "))
-max_instances = int(input("Enter the Max instances that should ever exist for this application (ie. 20) : "))
-marathon_app = input("Enter the Marathon Application Name to Configure Autoscale for from the Marathon UI : ")
+import config
 
 
 class Marathon(object):
-    def __init__(self, marathon_host, marathon_port):
-        self.name = marathon_host
-        self.uri = 'http://%s:%s' % (marathon_host, marathon_port)
+    def __init__(self, endpoint):
+        self.uri = endpoint
         self.apps = self.get_all_apps()
 
     def get_all_apps(self):
@@ -52,18 +43,18 @@ class Marathon(object):
                 app_task_dict[str(taskid)] = str(hostid)
             return app_task_dict
 
-    def scale_app(self,marathon_app,autoscale_multiplier):
+    def scale_app(self, marathon_app, autoscale_multiplier, max_instances):
         target_instances_float=self.appinstances * autoscale_multiplier
         target_instances=math.ceil(target_instances_float)
-        if (target_instances > max_instances):
+        if target_instances > max_instances:
             print("Reached the set maximum instances of", max_instances)
-            target_instances=max_instances
+            target_instances = max_instances
         else:
-            target_instances=target_instances
+            target_instances = target_instances
         data ={'instances': target_instances}
-        json_data=json.dumps(data)
+        json_data = json.dumps(data)
         headers = {'Content-type': 'application/json'}
-        response=requests.put(self.uri + '/v2/apps/'+ marathon_app, json_data, headers=headers, verify=False)
+        response = requests.put(self.uri + '/v2/apps/'+ marathon_app, json_data, headers=headers, verify=False)
         print ('Scale_app return status code =', response.status_code)
 
 
@@ -88,17 +79,28 @@ def timer():
 if __name__ == "__main__":
     print ("This application tested with Python3 only")
 
+    config_file = 'config.properties'
+    if len(sys.argv) > 1:
+        config_file = sys.argv[1]
+
+    cfg = config.Configuration()
+    try:
+        cfg.load(config_file)
+    except Exception as e:
+        print("Exception %s" % e)
+        sys.exit(1)
+
     running=1
     while running == 1:
         # Initialize the Marathon object
-        aws_marathon = Marathon(marathon_host, marathon_port)
+        aws_marathon = Marathon(cfg.marathon_endpoint)
         print ("Marathon URI = ...", aws_marathon.uri)
-        print ("Marathon name = ...", aws_marathon.name)
         # Call get_all_apps method for new object created from aws_marathon class and return all apps
         marathon_apps = aws_marathon.get_all_apps()
         print ("The following apps exist in Marathon...", marathon_apps)
         # Quick sanity check to test for apps existence in MArathon.
-        if (marathon_app in marathon_apps):
+        marathon_app = cfg.target_app
+        if cfg.target_app in marathon_apps:
             print ("  Found your Marathon App=", marathon_app)
         else:
             print ("  Could not find your App =", marathon_app)
@@ -155,16 +157,10 @@ if __name__ == "__main__":
         print ('Current Average Mem Utilization for app', marathon_app,'=', app_avg_mem)
         #Evaluate whether an autoscale trigger is called for
         print('\n')
-        if (trigger_mode == "and"):
-            if (app_avg_cpu > max_cpu_time) and (app_avg_mem > max_mem_percent):
-                print ("Autoscale triggered based on 'both' Mem & CPU exceeding threshold")
-                aws_marathon.scale_app(marathon_app, autoscale_multiplier)
-            else:
-                print ("Both values were not greater than autoscale targets")
-        elif (trigger_mode == "or"):
-            if (app_avg_cpu > max_cpu_time) or (app_avg_mem > max_mem_percent):
-                print ("Autoscale triggered based Mem 'or' CPU exceeding threshold")
-                aws_marathon.scale_app(marathon_app, autoscale_multiplier)
-            else:
-                print ("Neither Mem 'or' CPU values exceeding threshold")
+        if (app_avg_cpu > cfg.cpu_threshold) or (app_avg_mem > cfg.mem_threshold):
+            print ("Autoscale triggered based Mem 'or' CPU exceeding threshold")
+            aws_marathon.scale_app(marathon_app, cfg.multiplier, cfg.max_size)
+        else:
+            print ("Neither Mem 'or' CPU values exceeding threshold")
+
         timer()
