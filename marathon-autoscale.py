@@ -9,12 +9,14 @@ import config
 
 
 class Marathon(object):
-    def __init__(self, endpoint):
+    def __init__(self, endpoint, auth_id=None, auth_password=None):
         self.uri = endpoint
+        self.id = auth_id
+        self.password = auth_password
         self.apps = self.get_all_apps()
 
     def get_all_apps(self):
-        response = requests.get(self.uri + '/v2/apps', verify=False).json()
+        response = requests.get(self.uri + '/v2/apps', auth=(self.id, self.password), verify=False).json()
         if response['apps'] ==[]:
             print ("No Apps found on Marathon")
             sys.exit(1)
@@ -27,7 +29,7 @@ class Marathon(object):
             return apps
 
     def get_app_details(self, marathon_app):
-        response = requests.get(self.uri + '/v2/apps/'+ marathon_app, verify=False).json()
+        response = requests.get(self.uri + '/v2/apps/'+ marathon_app, auth=(self.id, self.password), verify=False).json()
         if (response['app']['tasks'] ==[]):
             print ('No task data on Marathon for App !', marathon_app)
         else:
@@ -54,7 +56,8 @@ class Marathon(object):
         data ={'instances': target_instances}
         json_data = json.dumps(data)
         headers = {'Content-type': 'application/json'}
-        response = requests.put(self.uri + '/v2/apps/'+ marathon_app, json_data, headers=headers, verify=False)
+        response = requests.put(self.uri + '/v2/apps/'+ marathon_app,
+                                json_data, headers=headers, auth=(self.id, self.password), verify=False)
         print ('Scale_app return status code =', response.status_code)
 
 
@@ -93,7 +96,7 @@ if __name__ == "__main__":
     running=1
     while running == 1:
         # Initialize the Marathon object
-        aws_marathon = Marathon(cfg.marathon_endpoint)
+        aws_marathon = Marathon(cfg.marathon_endpoint, cfg.auth_id, cfg.auth_password)
         print ("Marathon URI = ...", aws_marathon.uri)
         # Call get_all_apps method for new object created from aws_marathon class and return all apps
         marathon_apps = aws_marathon.get_all_apps()
