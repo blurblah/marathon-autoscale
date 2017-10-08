@@ -46,33 +46,61 @@ class Marathon(object):
                 app_task_dict[str(taskid)] = str(hostid)
             return app_task_dict
 
+    def get_app_instances(self, marathon_app):
+        response = requests.get(self.uri + '/v2/apps/'+ marathon_app, auth=(self.id, self.password), verify=False).json()
+        if (response['app']['tasks'] ==[]):
+            logging.info('No task data on Marathon for App ! %s' % marathon_app)
+            return 0
+        else:
+            return response['app']['instances']
+
+    def get_deployments(self):
+        response = requests.get(self.uri + '/v2/deployments', auth=(self.id, self.password), verify=False).json()
+        logging.debug(response)
+
     def scale_out(self, marathon_app, autoscale_multiplier, max_instances):
+        if self.appinstances == max_instances:
+            logging.info("Already reached the set maximum instances of %d" % self.appinstances)
+            return
+
         target_instances_float=self.appinstances * autoscale_multiplier
         target_instances=math.ceil(target_instances_float)
         if target_instances > max_instances:
             logging.info("Reached the set maximum instances of %d" % max_instances)
             target_instances = max_instances
-        else:
-            target_instances = target_instances
+
+        logging.info("[scaleout] start. current instances : %d" % self.appinstances)
         data = {'instances': target_instances}
         json_data = json.dumps(data)
         headers = {'Content-type': 'application/json'}
         response = requests.put(self.uri + '/v2/apps/'+ marathon_app,
                                 json_data, headers=headers, auth=(self.id, self.password), verify=False)
+        logging.debug(response.text)
+        self.get_deployments()
         logging.info('Scale out return status code = %d' % response.status_code)
+        if response.status_code == 200:
+            while self.get_app_instances(marathon_app) <= self.appinstances:
+                time.sleep(1)
+            logging.info('[scaleout] completed. current instances : %d' % self.get_app_instances(marathon_app))
 
     def scale_in(self, marathon_app):
         target_instances = self.appinstances - 1
         if target_instances < 1:
             logging.info("Reached the set 1 instance.")
         else:
+            logging.info("[scalein] start. current instances : %d" % self.appinstances)
             data = {'instances': target_instances}
             json_data = json.dumps(data)
             headers = {'Content-type': 'application/json'}
             response = requests.put(self.uri + '/v2/apps/'+ marathon_app,
                                     json_data, headers=headers, auth=(self.id, self.password), verify=False)
+            logging.debug(response.text)
+            self.get_deployments()
             logging.info('Scale in return status code = %d' % response.status_code)
-
+            if response.status_code == 200:
+                while self.get_app_instances(marathon_app) >= self.appinstances:
+                    time.sleep(1)
+                logging.info('[scalein] completed. current instances : %d' % self.get_app_instances(marathon_app))
 
 
 def get_task_agentstatistics(task, host):
